@@ -2,6 +2,7 @@
   "expo": {
     "name": "Self PDF Reader",
     "slug": "self-pdf-reader",
+    "owner": "aponanwar",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -26,6 +27,11 @@
     },
     "plugins": [
       "expo-sharing"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7e0454e0-ca12-46d4-b4ce-de7f26a1a462"
+      }
+    }
   }
 }
