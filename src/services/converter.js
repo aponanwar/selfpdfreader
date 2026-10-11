@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import mammoth from 'mammoth';
+import { readUriAsBase64 } from '../utils/fileReader';
 
 // Helper to convert base64 to ArrayBuffer
 function base64ToArrayBuffer(base64) {
@@ -42,9 +43,7 @@ export const ConverterService = {
       const img = images[i];
       let b64 = '';
       try {
-        b64 = await FileSystem.readAsStringAsync(img.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+        b64 = await readUriAsBase64(img.uri);
       } catch (e) {
         console.warn(`Could not read image as base64: ${img.uri}`, e);
       }
@@ -147,17 +146,21 @@ export const ConverterService = {
 
     if (fileNameLower.endsWith('.docx')) {
       // DOCX Conversion using Mammoth
-      const b64 = await FileSystem.readAsStringAsync(docFile.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      const b64 = await readUriAsBase64(docFile.uri);
       const arrayBuffer = base64ToArrayBuffer(b64);
       const conversionResult = await mammoth.convertToHtml({ arrayBuffer });
       bodyHtml = conversionResult.value || '<p>Empty Document</p>';
     } else {
       // Plain text, markdown, csv, or code files
-      const textContent = await FileSystem.readAsStringAsync(docFile.uri, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
+      let textContent = '';
+      try {
+        const res = await fetch(docFile.uri);
+        textContent = await res.text();
+      } catch (e) {
+        textContent = await FileSystem.readAsStringAsync(docFile.uri, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+      }
 
       const escapedText = textContent
         .replace(/&/g, '&amp;')

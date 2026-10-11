@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, useColorScheme } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import HomeScreen from './src/screens/HomeScreen';
 import ReaderScreen from './src/screens/ReaderScreen';
 import { StorageService } from './src/services/storage';
@@ -39,22 +40,24 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-      {currentScreen === 'reader' && selectedFile ? (
-        <ReaderScreen
-          file={selectedFile}
-          onBack={handleBackToHome}
-          initialTheme={theme}
-        />
-      ) : (
-        <HomeScreen
-          onOpenFile={handleOpenFile}
-          currentTheme={theme}
-          onToggleTheme={handleToggleTheme}
-        />
-      )}
-    </View>
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+        {currentScreen === 'reader' && selectedFile ? (
+          <ReaderScreen
+            file={selectedFile}
+            onBack={handleBackToHome}
+            initialTheme={theme}
+          />
+        ) : (
+          <HomeScreen
+            onOpenFile={handleOpenFile}
+            currentTheme={theme}
+            onToggleTheme={handleToggleTheme}
+          />
+        )}
+      </View>
+    </SafeAreaProvider>
   );
 }
 

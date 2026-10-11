@@ -6,16 +6,17 @@ import {
   FlatList,
   StyleSheet,
   StatusBar,
-  SafeAreaView,
   TextInput,
   RefreshControl,
   Alert,
   Modal,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { StorageService } from '../services/storage';
@@ -66,9 +67,21 @@ export default function HomeScreen({ onOpenFile, currentTheme, onToggleTheme }) 
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
+
+        // Ensure the file is saved permanently inside the app's local sandbox
+        let safeUri = asset.uri;
+        try {
+          const cleanName = (asset.name || 'document.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+          const permanentUri = `${FileSystem.documentDirectory}doc_${Date.now()}_${cleanName}`;
+          await FileSystem.copyAsync({ from: asset.uri, to: permanentUri });
+          safeUri = permanentUri;
+        } catch (copyErr) {
+          console.warn('Could not copy file to documentDirectory, using original uri:', copyErr);
+        }
+
         const fileData = {
           name: asset.name || 'Selected Document.pdf',
-          uri: asset.uri,
+          uri: safeUri,
           size: asset.size || 0,
           lastPage: 1,
           totalPages: 1,
