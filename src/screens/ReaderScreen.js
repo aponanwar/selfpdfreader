@@ -12,7 +12,7 @@ import {
   BackHandler,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useKeepAwake } from 'expo-keep-awake';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -73,17 +73,24 @@ export default function ReaderScreen({ file, onBack, initialTheme = 'light' }) {
         setErrorMessage(null);
 
         let targetUri = file.uri;
+        let b64 = '';
 
-        // If it's a content URI or remote file, copy to app cache for reliable access
-        if (targetUri.startsWith('content://')) {
-          const cacheUri = `${FileSystem.cacheDirectory}${Date.now()}_doc.pdf`;
-          await FileSystem.copyAsync({ from: targetUri, to: cacheUri });
-          targetUri = cacheUri;
+        try {
+          b64 = await FileSystem.readAsStringAsync(targetUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        } catch (initialErr) {
+          // Fallback: If direct read fails (e.g., content:// URIs on Android), copy to local cache first
+          try {
+            const cacheUri = `${FileSystem.cacheDirectory}${Date.now()}_doc.pdf`;
+            await FileSystem.copyAsync({ from: targetUri, to: cacheUri });
+            b64 = await FileSystem.readAsStringAsync(cacheUri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+          } catch (copyErr) {
+            throw new Error(initialErr.message || copyErr.message);
+          }
         }
-
-        const b64 = await FileSystem.readAsStringAsync(targetUri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
 
         if (isMounted) {
           setBase64Data(b64);
