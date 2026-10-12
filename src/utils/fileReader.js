@@ -45,7 +45,7 @@ export async function readUriAsBase64(uri) {
       return base64;
     }
   } catch (fetchErr) {
-    console.warn('Fetch base64 strategy failed, attempting FileSystem fallback:', fetchErr);
+    // Strategy 1 failed, quietly fall back to Strategy 2
   }
 
   // Strategy 2: Direct FileSystem read
@@ -57,7 +57,7 @@ export async function readUriAsBase64(uri) {
       return b64;
     }
   } catch (fsErr) {
-    console.warn('Direct FileSystem.readAsStringAsync failed, attempting cache copy:', fsErr);
+    // Strategy 2 failed, quietly fall back to Strategy 3
   }
 
   // Strategy 3: Copy to cache then read

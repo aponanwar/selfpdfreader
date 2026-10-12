@@ -68,20 +68,9 @@ export default function HomeScreen({ onOpenFile, currentTheme, onToggleTheme }) 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
 
-        // Ensure the file is saved permanently inside the app's local sandbox
-        let safeUri = asset.uri;
-        try {
-          const cleanName = (asset.name || 'document.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
-          const permanentUri = `${FileSystem.documentDirectory}doc_${Date.now()}_${cleanName}`;
-          await FileSystem.copyAsync({ from: asset.uri, to: permanentUri });
-          safeUri = permanentUri;
-        } catch (copyErr) {
-          console.warn('Could not copy file to documentDirectory, using original uri:', copyErr);
-        }
-
         const fileData = {
           name: asset.name || 'Selected Document.pdf',
-          uri: safeUri,
+          uri: asset.uri,
           size: asset.size || 0,
           lastPage: 1,
           totalPages: 1,

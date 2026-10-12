@@ -5,7 +5,7 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
   <title>Self PDF Reader</title>
-  <!-- PDF.js from reliable CDN with fallback -->
+  <!-- Mozilla PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <style>
     * {
@@ -13,14 +13,15 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
       -webkit-touch-callout: none;
       -webkit-user-select: text;
     }
-    body, html {
+    html, body {
       margin: 0;
       padding: 0;
       width: 100%;
-      height: 100%;
+      min-height: 100%;
       overflow-x: auto;
       overflow-y: auto;
-      background-color: ${theme === 'dark' ? '#0B0F19' : theme === 'sepia' ? '#F4ECD8' : '#F1F5F9'};
+      -webkit-overflow-scrolling: touch;
+      background-color: ${theme === 'dark' ? '#0B0F19' : theme === 'sepia' ? '#F4ECD8' : '#E2E8F0'};
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -31,25 +32,29 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
       display: flex;
       flex-direction: column;
       align-items: center;
+      justify-content: flex-start;
       width: 100%;
       min-height: 100%;
-      padding: 12px 0 60px 0;
+      padding: 10px 0 80px 0;
+      box-sizing: border-box;
     }
     .page-wrapper {
       position: relative;
-      margin: 10px auto;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+      margin: 8px auto;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.22);
       border-radius: 4px;
-      overflow: hidden;
       background: #FFFFFF;
+      display: flex;
+      justify-content: center;
+      align-items: center;
       transition: filter 0.3s ease;
+      overflow: visible;
     }
     canvas {
       display: block;
-      width: 100%;
-      height: auto;
+      border-radius: 4px;
     }
-    /* Theme modes */
+    /* Theme color inversions */
     .theme-dark canvas {
       filter: invert(0.92) hue-rotate(180deg) contrast(1.1) brightness(0.95);
     }
@@ -72,7 +77,8 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
       align-items: center;
       justify-content: center;
       z-index: 1000;
-      font-size: 16px;
+      font-size: 15px;
+      font-weight: 600;
     }
     .spinner {
       width: 44px;
@@ -92,7 +98,7 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
       right: 10px;
       background: rgba(37, 99, 235, 0.95);
       color: white;
-      padding: 6px 12px;
+      padding: 6px 14px;
       border-radius: 20px;
       font-size: 12px;
       font-weight: 600;
@@ -105,14 +111,15 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
       color: #EF4444;
       padding: 20px;
       text-align: center;
-      max-width: 80%;
+      max-width: 85%;
+      font-size: 14px;
     }
   </style>
 </head>
 <body class="theme-${theme}">
   <div id="loading">
     <div class="spinner"></div>
-    <div id="loading-text">Loading PDF Document...</div>
+    <div id="loading-text">Rendering Document...</div>
     <div id="error-box"></div>
   </div>
 
@@ -128,11 +135,14 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
     let pageNum = ${initialPage};
     let pageRendering = false;
     let pageNumPending = null;
-    let scale = 1.3;
+    let userZoom = 1.0;
+    let fitMode = 'fitWidth'; // 'fitWidth' | 'fitPage'
     let currentTheme = '${theme}';
     let base64Data = '${pdfBase64 || ''}';
+    
     const canvas = document.getElementById('pdf-canvas');
     const ctx = canvas.getContext('2d');
+    const pageWrapper = document.getElementById('page-container');
     const loadingElem = document.getElementById('loading');
     const loadingText = document.getElementById('loading-text');
     const errorBox = document.getElementById('error-box');
@@ -147,21 +157,51 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
       pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
 
+    // Dynamic screen-adaptive scale calculation (Fit-to-Width & Fit-to-Page)
+    function calculateViewport(page) {
+      // 1. Get raw unscaled dimensions of the PDF page (e.g., A4 is 595 x 842 pt)
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+
+      // 2. Measure actual viewport size of device screen
+      const screenWidth = window.innerWidth || document.documentElement.clientWidth || 360;
+      const screenHeight = window.innerHeight || document.documentElement.clientHeight || 640;
+
+      // 3. Provide clean margin (16px total) so page edges fit cleanly inside screen
+      const availableWidth = Math.max(screenWidth - 16, 260);
+      const availableHeight = Math.max(screenHeight - 110, 320);
+
+      const scaleWidth = availableWidth / unscaledViewport.width;
+      const scaleHeight = availableHeight / unscaledViewport.height;
+
+      let baseScale = scaleWidth;
+      if (fitMode === 'fitPage') {
+        baseScale = Math.min(scaleWidth, scaleHeight);
+      }
+
+      // Multiply by user zoom factor (default 1.0)
+      const finalScale = baseScale * userZoom;
+      return page.getViewport({ scale: finalScale });
+    }
+
     function renderPage(num) {
       pageRendering = true;
       pdfDoc.getPage(num).then(function(page) {
-        const viewport = page.getViewport({ scale: scale });
-        
-        // Match device pixel ratio for super-crisp rendering
-        const outputScale = window.devicePixelRatio || 1.5;
-        canvas.width = Math.floor(viewport.width * outputScale);
-        canvas.height = Math.floor(viewport.height * outputScale);
-        canvas.style.width = Math.floor(viewport.width) + "px";
-        canvas.style.height = Math.floor(viewport.height) + "px";
+        const viewport = calculateViewport(page);
 
-        const transform = outputScale !== 1 
-          ? [outputScale, 0, 0, outputScale, 0, 0] 
-          : null;
+        // Sharp high-DPI scaling for Retina and AMOLED mobile displays
+        const dpr = Math.min(window.devicePixelRatio || 2, 2.5);
+        canvas.width = Math.floor(viewport.width * dpr);
+        canvas.height = Math.floor(viewport.height * dpr);
+
+        const cssWidth = Math.floor(viewport.width);
+        const cssHeight = Math.floor(viewport.height);
+
+        canvas.style.width = cssWidth + "px";
+        canvas.style.height = cssHeight + "px";
+        pageWrapper.style.width = cssWidth + "px";
+        pageWrapper.style.height = cssHeight + "px";
+
+        const transform = dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null;
 
         const renderContext = {
           canvasContext: ctx,
@@ -194,6 +234,13 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
         renderPage(num);
       }
     }
+
+    // Auto re-render on screen orientation change (Portrait <-> Landscape)
+    window.addEventListener('resize', function() {
+      if (pdfDoc && !pageRendering) {
+        renderPage(pageNum);
+      }
+    });
 
     function loadDocument(b64) {
       try {
@@ -301,15 +348,21 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
             }
             break;
           case 'zoomIn':
-            scale = Math.min(scale + 0.25, 3.5);
+            userZoom = Math.min(userZoom + 0.25, 4.0);
             queueRenderPage(pageNum);
             break;
           case 'zoomOut':
-            scale = Math.max(scale - 0.25, 0.6);
+            userZoom = Math.max(userZoom - 0.25, 0.4);
             queueRenderPage(pageNum);
             break;
           case 'resetZoom':
-            scale = 1.3;
+            userZoom = 1.0;
+            fitMode = 'fitWidth';
+            queueRenderPage(pageNum);
+            break;
+          case 'toggleFitMode':
+            fitMode = fitMode === 'fitWidth' ? 'fitPage' : 'fitWidth';
+            userZoom = 1.0;
             queueRenderPage(pageNum);
             break;
           case 'setTheme':
@@ -317,7 +370,7 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
             document.body.className = 'theme-' + msg.theme;
             document.body.style.backgroundColor = 
               msg.theme === 'dark' ? '#0B0F19' : 
-              msg.theme === 'sepia' ? '#F4ECD8' : '#F1F5F9';
+              msg.theme === 'sepia' ? '#F4ECD8' : '#E2E8F0';
             break;
           case 'extractText':
             extractCurrentText();
@@ -336,7 +389,6 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
       }
     });
 
-    // Start loading on load
     window.onload = function() {
       if (base64Data) {
         loadDocument(base64Data);
