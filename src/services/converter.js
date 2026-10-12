@@ -37,8 +37,11 @@ export const ConverterService = {
       throw new Error('No images selected for conversion.');
     }
 
-    // Convert each image to base64 data URL for rock-solid HTML printing
+    // Convert each image to base64 data URL and measure dimensions
     const imageElements = [];
+    let totalWidth = 0;
+    let totalHeight = 0;
+
     for (let i = 0; i < images.length; i++) {
       const img = images[i];
       let b64 = '';
@@ -48,6 +51,11 @@ export const ConverterService = {
         console.warn(`Could not read image as base64: ${img.uri}`, e);
       }
 
+      const imgW = img.width || 800;
+      const imgH = img.height || 1000;
+      totalWidth += imgW;
+      totalHeight += imgH;
+
       const src = b64 ? `data:image/jpeg;base64,${b64}` : img.uri;
       imageElements.push(`
         <div class="page-container">
@@ -55,6 +63,13 @@ export const ConverterService = {
         </div>
       `);
     }
+
+    // Determine target PDF page dimensions matching image aspect ratio
+    const avgW = Math.max(Math.round(totalWidth / images.length), 100);
+    const avgH = Math.max(Math.round(totalHeight / images.length), 100);
+
+    const pdfPageWidth = 612;
+    const pdfPageHeight = Math.round(pdfPageWidth * (avgH / avgW));
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -66,19 +81,22 @@ export const ConverterService = {
         <style>
           @page {
             margin: 0;
-            size: auto;
+            size: ${pdfPageWidth}pt ${pdfPageHeight}pt;
           }
           * {
             box-sizing: border-box;
+            margin: 0;
+            padding: 0;
           }
           body, html {
             margin: 0;
             padding: 0;
-            background: #ffffff;
             width: 100%;
+            height: 100%;
+            background: #ffffff;
           }
           .page-container {
-            width: 100vw;
+            width: 100%;
             height: 100vh;
             page-break-after: always;
             page-break-inside: avoid;
@@ -92,8 +110,8 @@ export const ConverterService = {
             page-break-after: auto;
           }
           img {
-            max-width: 96%;
-            max-height: 96%;
+            width: 100%;
+            height: 100%;
             object-fit: contain;
             display: block;
           }
@@ -105,9 +123,11 @@ export const ConverterService = {
       </html>
     `;
 
-    // Generate PDF using Expo Print
+    // Generate PDF using Expo Print with custom exact image dimensions
     const { uri: tempPdfUri } = await Print.printToFileAsync({
       html: htmlContent,
+      width: pdfPageWidth,
+      height: pdfPageHeight,
     });
 
     // Move to permanent document storage

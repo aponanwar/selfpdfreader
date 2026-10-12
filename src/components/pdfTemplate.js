@@ -324,41 +324,105 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
       });
     }
 
-    // Message handler from React Native
-    window.addEventListener('message', function(event) {
+    // Global navigation functions for direct JavaScript injection
+    window.goToNextPage = function() {
+      if (pdfDoc && pageNum < pdfDoc.numPages) {
+        pageNum++;
+        queueRenderPage(pageNum);
+      }
+    };
+
+    window.goToPrevPage = function() {
+      if (pdfDoc && pageNum > 1) {
+        pageNum--;
+        queueRenderPage(pageNum);
+      }
+    };
+
+    window.goToPage = function(target) {
+      const p = parseInt(target, 10);
+      if (pdfDoc && !isNaN(p) && p >= 1 && p <= pdfDoc.numPages) {
+        pageNum = p;
+        queueRenderPage(pageNum);
+      }
+    };
+
+    window.zoomIn = function() {
+      userZoom = Math.min(userZoom + 0.25, 4.0);
+      queueRenderPage(pageNum);
+    };
+
+    window.zoomOut = function() {
+      userZoom = Math.max(userZoom - 0.25, 0.4);
+      queueRenderPage(pageNum);
+    };
+
+    window.resetZoom = function() {
+      userZoom = 1.0;
+      fitMode = 'fitWidth';
+      queueRenderPage(pageNum);
+    };
+
+    // Touch Swipe Gesture Detection (Swipe Left for Next Page, Swipe Right for Prev Page)
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    function onTouchStart(e) {
+      if (e.touches && e.touches.length === 1) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = Date.now();
+      }
+    }
+
+    function onTouchEnd(e) {
+      if (e.changedTouches && e.changedTouches.length === 1) {
+        const deltaX = e.changedTouches[0].clientX - touchStartX;
+        const deltaY = e.changedTouches[0].clientY - touchStartY;
+        const deltaTime = Date.now() - touchStartTime;
+
+        // If swipe took less than 600ms, moved at least 50px horizontally, and horizontal > 1.4 * vertical
+        if (deltaTime < 600 && Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.3) {
+          if (deltaX < 0) {
+            // Swiped Left -> Next Page
+            window.goToNextPage();
+          } else {
+            // Swiped Right -> Previous Page
+            window.goToPrevPage();
+          }
+        }
+      }
+    }
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    // Message handler from React Native (Supports both window and document on Android)
+    function onRNMessage(event) {
       try {
-        const msg = JSON.parse(event.data);
+        const raw = event.data;
+        const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (!msg || !msg.action) return;
+
         switch (msg.action) {
           case 'nextPage':
-            if (pdfDoc && pageNum < pdfDoc.numPages) {
-              pageNum++;
-              queueRenderPage(pageNum);
-            }
+            window.goToNextPage();
             break;
           case 'prevPage':
-            if (pdfDoc && pageNum > 1) {
-              pageNum--;
-              queueRenderPage(pageNum);
-            }
+            window.goToPrevPage();
             break;
           case 'goToPage':
-            if (pdfDoc && msg.page >= 1 && msg.page <= pdfDoc.numPages) {
-              pageNum = msg.page;
-              queueRenderPage(pageNum);
-            }
+            window.goToPage(msg.page);
             break;
           case 'zoomIn':
-            userZoom = Math.min(userZoom + 0.25, 4.0);
-            queueRenderPage(pageNum);
+            window.zoomIn();
             break;
           case 'zoomOut':
-            userZoom = Math.max(userZoom - 0.25, 0.4);
-            queueRenderPage(pageNum);
+            window.zoomOut();
             break;
           case 'resetZoom':
-            userZoom = 1.0;
-            fitMode = 'fitWidth';
-            queueRenderPage(pageNum);
+            window.resetZoom();
             break;
           case 'toggleFitMode':
             fitMode = fitMode === 'fitWidth' ? 'fitPage' : 'fitWidth';
@@ -387,7 +451,10 @@ export function generatePDFViewerHTML(pdfBase64, initialPage = 1, theme = 'light
       } catch (err) {
         console.error('Error handling RN message:', err);
       }
-    });
+    }
+
+    window.addEventListener('message', onRNMessage);
+    document.addEventListener('message', onRNMessage);
 
     window.onload = function() {
       if (base64Data) {

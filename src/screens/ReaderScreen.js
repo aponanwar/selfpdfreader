@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { useKeepAwake } from 'expo-keep-awake';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
@@ -110,10 +111,26 @@ export default function ReaderScreen({ file, onBack, initialTheme = 'light' }) {
     setBookmarksList(list);
   };
 
-  // Send message to WebView
+  // Send message to WebView with direct JS execution fallback
   const sendWebViewMessage = (action, payload = {}) => {
     if (webViewRef.current) {
+      // 1. Post via postMessage
       webViewRef.current.postMessage(JSON.stringify({ action, ...payload }));
+
+      // 2. Direct JavaScript execution fallback for instant touch response on Android
+      if (action === 'nextPage') {
+        webViewRef.current.injectJavaScript('window.goToNextPage && window.goToNextPage(); true;');
+      } else if (action === 'prevPage') {
+        webViewRef.current.injectJavaScript('window.goToPrevPage && window.goToPrevPage(); true;');
+      } else if (action === 'goToPage') {
+        webViewRef.current.injectJavaScript(`window.goToPage && window.goToPage(${payload.page}); true;`);
+      } else if (action === 'zoomIn') {
+        webViewRef.current.injectJavaScript('window.zoomIn && window.zoomIn(); true;');
+      } else if (action === 'zoomOut') {
+        webViewRef.current.injectJavaScript('window.zoomOut && window.zoomOut(); true;');
+      } else if (action === 'resetZoom') {
+        webViewRef.current.injectJavaScript('window.resetZoom && window.resetZoom(); true;');
+      }
     }
   };
 
@@ -188,6 +205,25 @@ export default function ReaderScreen({ file, onBack, initialTheme = 'light' }) {
       sendWebViewMessage('extractText');
     } else {
       setIsTTSVisible(false);
+    }
+  };
+
+  // Share Document to WhatsApp, Messenger, Email, etc.
+  const handleShareDocument = async () => {
+    try {
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('Sharing Unavailable', 'Sharing is not supported on this device.');
+        return;
+      }
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: `Share ${file.name}`,
+        UTI: 'com.adobe.pdf',
+      });
+    } catch (err) {
+      console.error('Share error:', err);
+      Alert.alert('Share Failed', 'Could not share file: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -289,6 +325,11 @@ export default function ReaderScreen({ file, onBack, initialTheme = 'light' }) {
                 size={22}
                 color={theme === 'dark' ? '#FBBF24' : theme === 'sepia' ? '#8A5A2B' : '#2563EB'}
               />
+            </TouchableOpacity>
+
+            {/* Share Document Button */}
+            <TouchableOpacity onPress={handleShareDocument} style={styles.topIconBtn}>
+              <Ionicons name="share-social-outline" size={22} color={themeColors.text} />
             </TouchableOpacity>
 
             {/* Bookmarks List Modal Trigger */}
