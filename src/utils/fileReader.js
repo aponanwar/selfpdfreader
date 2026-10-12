@@ -1,54 +1,34 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 /**
- * Universal Base64 file reader that bypasses Android sandboxing and content:// restrictions
- * Strategy 1: React Native fetch() + Blob + FileReader (bypasses Expo FilePermissionService)
- * Strategy 2: FileSystem.readAsStringAsync
- * Strategy 3: Copy to cacheDirectory then readAsStringAsync
+ * Convert ArrayBuffer to Base64 in chunks to prevent Call Stack Overflow
+ */
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  const chunkSize = 8192;
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+  return btoa(binary);
+}
+
+/**
+ * High-performance, clean Base64 file reader
+ * Strategy 1: Direct native FileSystem read (instant, zero overhead)
+ * Strategy 2: React Native fetch() + res.arrayBuffer() (completely avoids res.blob() warning)
+ * Strategy 3: Cache copy fallback
  */
 export async function readUriAsBase64(uri) {
   if (!uri) {
     throw new Error('No URI provided to read.');
   }
 
-  // Strategy 1: React Native fetch() + Blob + FileReader
-  // Highly reliable on Android because RN's NetworkingModule directly queries
-  // Android's ContentResolver and FileInputStream without Expo's sandbox path checks.
-  try {
-    const base64 = await new Promise((resolve, reject) => {
-      fetch(uri)
-        .then((res) => {
-          if (!res.ok && res.status !== 0) {
-            throw new Error(`Fetch returned status ${res.status}`);
-          }
-          return res.blob();
-        })
-        .then((blob) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const dataUrl = reader.result;
-            if (typeof dataUrl === 'string') {
-              const commaIndex = dataUrl.indexOf(',');
-              const rawBase64 = commaIndex !== -1 ? dataUrl.slice(commaIndex + 1) : dataUrl;
-              resolve(rawBase64);
-            } else {
-              reject(new Error('FileReader did not produce string output'));
-            }
-          };
-          reader.onerror = (e) => reject(new Error('FileReader error: ' + (e?.message || 'unknown')));
-          reader.readAsDataURL(blob);
-        })
-        .catch((err) => reject(err));
-    });
-
-    if (base64 && base64.length > 0) {
-      return base64;
-    }
-  } catch (fetchErr) {
-    // Strategy 1 failed, quietly fall back to Strategy 2
-  }
-
-  // Strategy 2: Direct FileSystem read
+  // Strategy 1: Native FileSystem read
+  // Files from DocumentPicker (copyToCacheDirectory: true) or local storage
+  // read directly in native C++/Java with maximum performance and zero overhead.
   try {
     const b64 = await FileSystem.readAsStringAsync(uri, {
       encoding: FileSystem.EncodingType.Base64,
@@ -57,10 +37,25 @@ export async function readUriAsBase64(uri) {
       return b64;
     }
   } catch (fsErr) {
+    // Strategy 1 failed, quietly fall back to Strategy 2
+  }
+
+  // Strategy 2: fetch() with res.arrayBuffer()
+  // Uses arrayBuffer() instead of blob(), eliminating the React Native BlobManager
+  // performance overhead warning completely.
+  try {
+    const res = await fetch(uri);
+    if (res.ok || res.status === 0) {
+      const buffer = await res.arrayBuffer();
+      if (buffer && buffer.byteLength > 0) {
+        return arrayBufferToBase64(buffer);
+      }
+    }
+  } catch (fetchErr) {
     // Strategy 2 failed, quietly fall back to Strategy 3
   }
 
-  // Strategy 3: Copy to cache then read
+  // Strategy 3: Cache copy fallback
   try {
     const cacheUri = `${FileSystem.cacheDirectory}temp_${Date.now()}.pdf`;
     await FileSystem.copyAsync({ from: uri, to: cacheUri });
@@ -69,6 +64,6 @@ export async function readUriAsBase64(uri) {
     });
     return b64;
   } catch (copyErr) {
-    throw new Error(`Unable to read file content: ${copyErr.message}`);
+    throw new Error('Unable to read document file.');
   }
 }
